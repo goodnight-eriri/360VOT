@@ -25,6 +25,8 @@ Currently, the toolkit uses [Rotated_IoU](https://github.com/lilanxiao/Rotated_I
 git submodule add https://github.com/lilanxiao/Rotated_IoU eval/Rotated_IoU
 ```
 
+For using the 360 tracking framework with PyTorch implementation, please install the dependency at [here](https://github.com/XuYinzhe/Connected_components_PyTorch).
+
 ## Usage
 
 ### Evaluation on 360VOT dataset

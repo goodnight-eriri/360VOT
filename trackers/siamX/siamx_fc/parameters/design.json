@@ -1,0 +1,8 @@
+{
+  "exemplar_sz": 127,
+  "search_sz": 255,
+  "score_sz": 17,
+  "final_score_sz": 272,
+  "context_amount": 0.5,
+  "net_avg_image": [104, 117, 123]
+}

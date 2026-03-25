@@ -8,3 +8,5 @@ rich
 pandas
 scipy
 scikit-image
+torch
+torchvision

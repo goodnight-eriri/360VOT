@@ -47,20 +47,19 @@ class SiamFCTracker:
     class Params:
         class Hyper:
             scale_num        = 3
-            scale_step       = 1.0375
-            scale_penalty    = 0.9745
+            scale_step       = 1.040
+            scale_penalty    = 0.97
             scale_lr         = 0.59
-            window_influence = 0.176
-            response_up      = 16
-            response_sz      = 17
+            window_influence = 0.25
+            response_up      = 8
 
         class Design:
             exemplar_sz    = 127
             search_sz      = 255
-            score_sz       = 17
-            final_score_sz = 272
+            score_sz       = 33
+            tot_stride     = 4
+            final_score_sz = 273
             context_amount = 0.5
-            net_avg_image  = [104, 117, 123]
 
     # ------------------------------------------------------------------
 
@@ -81,8 +80,6 @@ class SiamFCTracker:
         self.net = SiameseNet(model_path=model_path, device=device)
 
         # Build cosine window (applied to the upsampled response map)
-        score_sz = self.hyper.response_sz  # raw response size (e.g. 17)
-        up = self.hyper.response_up        # upsample factor  (e.g. 16)
         final_sz = self.design.final_score_sz
         hann_1d = np.hanning(final_sz)
         self._cos_window = np.outer(hann_1d, hann_1d).astype(np.float32)

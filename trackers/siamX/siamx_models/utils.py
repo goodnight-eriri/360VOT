@@ -25,6 +25,13 @@ def load_pretrain(model: torch.nn.Module, pretrain_path: str, strict: bool = Fal
     # Strip leading 'module.' prefix produced by DataParallel/DistributedDataParallel
     state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
 
+    # Remap keys from external SiamFC checkpoints (e.g. huanglianghua/siamfc-pytorch)
+    # where keys use 'features.feature.*' instead of this repo's 'backbone.features.*'
+    state_dict = {
+        ('backbone.features.' + k[len('features.feature.'):] if k.startswith('features.feature.') else k): v
+        for k, v in state_dict.items()
+    }
+
     missing, unexpected = model.load_state_dict(state_dict, strict=strict)
     if missing:
         print(f"[siamX] Missing keys in checkpoint: {missing}")

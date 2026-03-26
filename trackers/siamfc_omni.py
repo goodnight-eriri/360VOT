@@ -38,6 +38,7 @@ import sys
 
 import cv2
 import numpy as np
+from typing import Optional
 
 # Allow running from the repo root without explicit install
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -73,7 +74,7 @@ class SiamFCOmniTracker:
 
     def __init__(
         self,
-        model_path: str | None = None,
+        model_path: Optional[str] = None,
         img_w: int = 1920,
         img_h: int = 960,
         search_scale: float = 2.0,
@@ -86,9 +87,9 @@ class SiamFCOmniTracker:
         self.tracker = SiamFCTracker(model_path=model_path, device=device)
 
         # State
-        self._last_bfov: Bfov | None = None
-        self._last_u: np.ndarray | None = None
-        self._last_v: np.ndarray | None = None
+        self._last_bfov: Optional[Bfov] = None
+        self._last_u: Optional[np.ndarray] = None
+        self._last_v: Optional[np.ndarray] = None
 
     # ------------------------------------------------------------------
 

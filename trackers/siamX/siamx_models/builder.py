@@ -16,6 +16,7 @@ Weight loading:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Optional
 
 
 # ---------------------------------------------------------------------------
@@ -23,41 +24,43 @@ import torch.nn.functional as F
 # ---------------------------------------------------------------------------
 
 class AlexNet(nn.Module):
-    """5-layer AlexNet backbone for SiamFC (no FC layers, no padding).
+    """SiameseX.PyTorch AlexNet backbone for SiamFC.
 
-    Attribute name ``self.feature`` (singular) matches SiameseX.PyTorch so
-    that state-dict keys align with the pretrained ``SiamFC.pth``.
+    This matches the pretrained ``SiamFC.pth`` layout from
+    zllrunning/SiameseX.PyTorch:
 
-    Input/output sizes (no padding):
-      z = 127 × 127  →  6 × 6 × 256
-      x = 255 × 255  → 22 × 22 × 256
+    - conv1 / conv2 / conv3 / conv4 / conv5
+    - BatchNorm after conv1..conv4
+    - groups=2 for conv2, conv4 and conv5
     """
 
     def __init__(self):
         super().__init__()
         self.feature = nn.Sequential(
-            # Conv1: 127→59 / 255→123
+            # conv1
             nn.Conv2d(3, 96, kernel_size=11, stride=2),
             nn.BatchNorm2d(96),
             nn.ReLU(inplace=True),
-            # Pool1: 59→29 / 123→61
             nn.MaxPool2d(kernel_size=3, stride=2),
-            # Conv2: 29→25 / 61→57
-            nn.Conv2d(96, 256, kernel_size=5),
+
+            # conv2 (groups=2!)
+            nn.Conv2d(96, 256, kernel_size=5, stride=1, groups=2),
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
-            # Pool2: 25→12 / 57→28
             nn.MaxPool2d(kernel_size=3, stride=2),
-            # Conv3: 12→10 / 28→26
-            nn.Conv2d(256, 384, kernel_size=3),
+
+            # conv3
+            nn.Conv2d(256, 384, kernel_size=3, stride=1),
             nn.BatchNorm2d(384),
             nn.ReLU(inplace=True),
-            # Conv4: 10→8 / 26→24
-            nn.Conv2d(384, 384, kernel_size=3),
+
+            # conv4 (groups=2!)
+            nn.Conv2d(384, 384, kernel_size=3, stride=1, groups=2),
             nn.BatchNorm2d(384),
             nn.ReLU(inplace=True),
-            # Conv5: 8→6 / 24→22
-            nn.Conv2d(384, 256, kernel_size=3),
+
+            # conv5 (groups=2!)
+            nn.Conv2d(384, 256, kernel_size=3, stride=1, groups=2),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -115,7 +118,7 @@ class SiamFC(SiamFC_):
 # Builder
 # ---------------------------------------------------------------------------
 
-def build_siamfc(model_path: str | None = None) -> SiamFC:
+def build_siamfc(model_path: Optional[str] = None) -> SiamFC:
     """Build a :class:`SiamFC` model, optionally loading pretrained weights.
 
     The ``SiamFC.pth`` from SiameseX.PyTorch stores weights with keys that

@@ -70,6 +70,9 @@ class SiamFCOmniTracker:
                       crop produced by :meth:`OmniImage.crop_bfov`.
         device:       Torch device for the SiamFC model (``'cuda'`` or
                       ``'cpu'``).
+        use_trt:      Pass ``True`` to enable TensorRT acceleration for the
+                      SiamFC backbone.  Requires TensorRT and PyCUDA; falls
+                      back to PyTorch silently when unavailable.
     """
 
     def __init__(
@@ -80,11 +83,13 @@ class SiamFCOmniTracker:
         search_scale: float = 2.0,
         crop_size: int = 500,
         device: str = 'cpu',
+        use_trt: bool = False,
     ):
         self.omni = OmniImage(img_w=img_w, img_h=img_h)
         self.search_scale = search_scale
         self.crop_size = crop_size
-        self.tracker = SiamFCTracker(model_path=model_path, device=device)
+        self.tracker = SiamFCTracker(model_path=model_path, device=device,
+                                     use_trt=use_trt)
 
         # State
         self._last_bfov: Optional[Bfov] = None

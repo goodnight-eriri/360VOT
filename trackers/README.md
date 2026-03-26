@@ -75,6 +75,33 @@ python scripts/run_siamfc_360.py \
     --vis
 ```
 
+### Interactive video demo (MP4 input)
+
+Use `scripts/test_video_siamx.py` to test the SiamX-360 tracker on any MP4
+video.  The script opens the first frame for manual bounding-box annotation,
+then runs real-time tracking with live visualisation, saves an output video,
+and reports inference speed.
+
+```bash
+# Basic usage — draw bbox on frame 1, then track
+python scripts/test_video_siamx.py \
+    --video /path/to/video.mp4 \
+    --model_path trackers/siamX/pretrained_weights/SiamFC.pth
+
+# Use GPU and specify output path
+python scripts/test_video_siamx.py \
+    --video /path/to/video.mp4 \
+    --model_path trackers/siamX/pretrained_weights/SiamFC.pth \
+    --device cuda \
+    --output results/demo_out.mp4
+
+# Headless mode (no GUI window, just save output)
+python scripts/test_video_siamx.py \
+    --video /path/to/video.mp4 \
+    --model_path trackers/siamX/pretrained_weights/SiamFC.pth \
+    --no_show
+```
+
 ### Evaluating results
 
 After running the tracker, evaluate with the standard 360VOT benchmark script:

@@ -38,6 +38,9 @@ class SiamFCTracker:
         device:     Torch device string (``'cuda'`` or ``'cpu'``).
         params_dir: Directory containing ``hyperparams.json`` /
                     ``design.json``.  ``None`` → use bundled defaults.
+        use_trt:    Pass ``True`` to enable TensorRT acceleration for the
+                    backbone.  Requires TensorRT and PyCUDA; silently falls
+                    back to PyTorch when unavailable.
     """
 
     # ------------------------------------------------------------------
@@ -65,7 +68,8 @@ class SiamFCTracker:
 
     def __init__(self, model_path: str | None = None,
                  device: str = 'cpu',
-                 params_dir: str | None = None):
+                 params_dir: str | None = None,
+                 use_trt: bool = False):
         self.model_path = model_path
         self.device_str = device
 
@@ -77,7 +81,8 @@ class SiamFCTracker:
             self.design = self.Params.Design()
 
         # Build siamese network
-        self.net = SiameseNet(model_path=model_path, device=device)
+        self.net = SiameseNet(model_path=model_path, device=device,
+                              use_trt=use_trt)
 
         # Build cosine window (applied to the upsampled response map)
         final_sz = self.design.final_score_sz

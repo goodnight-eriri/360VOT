@@ -15,6 +15,11 @@ Usage::
         --model_path trackers/siamX/pretrained_weights/SiamFC.pth \
         --device cuda
 
+    # TensorRT acceleration (Jetson / TRT-capable GPU)
+    python scripts/test_video_siamx.py --video /path/to/video.mp4 \
+        --model_path trackers/siamX/pretrained_weights/SiamFC.pth \
+        --device cuda --use_trt
+
     # Specify output path
     python scripts/test_video_siamx.py --video /path/to/video.mp4 \
         --output results/demo_out.mp4
@@ -24,7 +29,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import queue
 import sys
+import threading
 import time
 
 import cv2
@@ -76,6 +83,59 @@ def overlay_info(img: np.ndarray, frame_idx: int, fps: float,
 
 
 # ---------------------------------------------------------------------------
+# Background frame reader
+# ---------------------------------------------------------------------------
+
+class FrameReader:
+    """Reads video frames in a background thread to overlap I/O with inference.
+
+    Usage::
+
+        reader = FrameReader(cap, maxsize=4)
+        reader.start()
+        while True:
+            frame = reader.read()
+            if frame is None:
+                break
+            process(frame)
+        reader.stop()
+    """
+
+    _SENTINEL = None  # signals end-of-stream
+
+    def __init__(self, cap: cv2.VideoCapture, maxsize: int = 8):
+        self._cap = cap
+        self._queue: queue.Queue = queue.Queue(maxsize=maxsize)
+        self._thread = threading.Thread(target=self._worker, daemon=True)
+        self._stop_event = threading.Event()
+
+    def start(self) -> 'FrameReader':
+        self._thread.start()
+        return self
+
+    def read(self):
+        """Return the next frame, or ``None`` when the stream is exhausted."""
+        return self._queue.get()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        # Drain the queue so the worker thread can exit
+        while not self._queue.empty():
+            try:
+                self._queue.get_nowait()
+            except queue.Empty:
+                break
+
+    def _worker(self) -> None:
+        while not self._stop_event.is_set():
+            ret, frame = self._cap.read()
+            if not ret:
+                self._queue.put(self._SENTINEL)
+                break
+            self._queue.put(frame)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -107,6 +167,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         '--device', default='cpu', choices=['cpu', 'cuda'],
         help='Compute device for the SiamFC model.',
+    )
+    parser.add_argument(
+        '--use_trt', action='store_true',
+        help='Enable TensorRT acceleration for the SiamFC backbone '
+             '(requires TensorRT + PyCUDA; silently ignored when unavailable).',
     )
     parser.add_argument(
         '--no_show', action='store_true',
@@ -165,6 +230,7 @@ def main() -> None:
         search_scale=args.search_scale,
         crop_size=args.crop_size,
         device=args.device,
+        use_trt=args.use_trt,
     )
     tracker.initialize(first_frame, init_bfov)
     print("Tracker initialised.\n")
@@ -188,13 +254,17 @@ def main() -> None:
         cv2.imshow('SiamX-360 Tracking', vis)
         cv2.waitKey(1)
 
+    # --- Start background frame reader ------------------------------------
+    reader = FrameReader(cap, maxsize=8).start()
+
     # --- Tracking loop -----------------------------------------------------
     frame_idx = 1
     infer_times: list[float] = []
+    stopped_early = False
 
     while True:
-        ret, frame = cap.read()
-        if not ret:
+        frame = reader.read()
+        if frame is None:
             break
 
         t_start = time.perf_counter()
@@ -206,7 +276,7 @@ def main() -> None:
         cur_fps = 1.0 / elapsed if elapsed > 0 else 0.0
         avg_fps = len(infer_times) / sum(infer_times)
 
-        # Visualise
+        # Visualise — only copy the frame when we actually need to draw
         vis = omni.plot_bfov(frame.copy(), pred_bfov, color=(0, 255, 0))
         vis = overlay_info(vis, frame_idx, cur_fps, avg_fps)
         writer.write(vis)
@@ -215,6 +285,7 @@ def main() -> None:
             cv2.imshow('SiamX-360 Tracking', vis)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 print("User pressed 'q' — stopping early.")
+                stopped_early = True
                 break
 
         if frame_idx % 50 == 0 or frame_idx == total_frames - 1:
@@ -224,6 +295,7 @@ def main() -> None:
         frame_idx += 1
 
     # --- Cleanup -----------------------------------------------------------
+    reader.stop()
     cap.release()
     writer.release()
     if not args.no_show:

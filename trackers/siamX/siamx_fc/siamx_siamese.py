@@ -2,13 +2,16 @@
 ``get_template_z_new`` / ``get_scores_new`` interface expected by
 SiamFCTracker.
 
-Adapted from deep_mdp's siamx_fc/siamx_siamese.py.
+Ported from zllrunning/SiameseX.PyTorch ``demo_utils/siamese.py``.
+Key adaptation: ``get_scores_new`` accepts a numpy BGR ndarray instead of
+a filename string, since 360VOT passes crops as ndarrays.
 """
 
 from __future__ import annotations
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from .crops import extract_crops_z, extract_crops_x, image_to_tensor
 from ..siamx_models.builder import SiamFC, build_siamfc
@@ -25,6 +28,14 @@ class SiameseNet:
         self.model.eval()
 
     # ------------------------------------------------------------------
+    # Feature extraction (used internally)
+    # ------------------------------------------------------------------
+
+    def branch(self, tensor: torch.Tensor) -> torch.Tensor:
+        """Extract backbone features from a pre-normalised tensor."""
+        return self.model.features(tensor)
+
+    # ------------------------------------------------------------------
     # Template extraction (called once during initialisation)
     # ------------------------------------------------------------------
 
@@ -38,8 +49,7 @@ class SiameseNet:
             pos_y:  Vertical centre of the target in *image*.
             z_sz:   Template crop size in pixels (before resizing to 127).
             image:  BGR uint8 frame.
-            design: Design parameter object with ``exemplar_sz`` and
-                    ``net_avg_image`` attributes.
+            design: Design parameter object with ``exemplar_sz`` attribute.
 
         Returns:
             Template feature tensor of shape (1, C, Hz, Wz).
@@ -47,9 +57,9 @@ class SiameseNet:
         z_crop = extract_crops_z(
             image, pos_y, pos_x, z_sz, exemplar_sz=design.exemplar_sz
         )
-        z_tensor = image_to_tensor(z_crop, design.net_avg_image, self.device)
+        z_tensor = image_to_tensor(z_crop, self.device)
         with torch.no_grad():
-            z_feat = self.model.template(z_tensor)
+            z_feat = self.branch(z_tensor)
         return z_feat
 
     # ------------------------------------------------------------------
@@ -68,33 +78,29 @@ class SiameseNet:
             pos_x:              Current horizontal centre estimate.
             pos_y:              Current vertical centre estimate.
             scaled_search_area: List of search crop sizes (one per scale).
-            template_z:         Template features from :meth:`get_template_z_new`.
-            image:              BGR uint8 current frame.
-            design:             Design parameters (``search_sz``, ``net_avg_image``).
+            template_z:         Template features from
+                                :meth:`get_template_z_new`.
+            image:              BGR uint8 current frame (numpy ndarray).
+            design:             Design parameters (``search_sz`` attribute).
             final_score_sz:     Side length to upsample the response map to.
 
         Returns:
             Tensor of shape (n_scales, final_score_sz, final_score_sz).
         """
         num_scales = len(scaled_search_area)
-        x_crops = extract_crops_x(
-            image, pos_y, pos_x,
-            x_sz=1.0,  # dummy; actual sizes given per-scale below
-            scale_factors=[1.0] * num_scales,  # will be overridden
-            search_sz=design.search_sz,
-        )
-        # Override: extract each crop at its own size
-        avg_chans = np.mean(image, axis=(0, 1)).astype(np.uint8)
-        from .crops import _extract_crop
+
+        # Extract one search crop per scale
         x_crops = [
-            _extract_crop(image, pos_y, pos_x,
-                          int(round(sa)), design.search_sz, avg_chans)
+            extract_crops_x(
+                image, pos_y, pos_x,
+                x_sz=sa, scale_factors=[1.0],
+                search_sz=design.search_sz,
+            )[0]
             for sa in scaled_search_area
         ]
 
         x_tensor = torch.cat(
-            [image_to_tensor(c, design.net_avg_image, self.device)
-             for c in x_crops],
+            [image_to_tensor(c, self.device) for c in x_crops],
             dim=0,
         )  # (n_scales, 3, search_sz, search_sz)
 
@@ -102,13 +108,12 @@ class SiameseNet:
         z_batch = template_z.expand(num_scales, -1, -1, -1)
 
         with torch.no_grad():
-            x_feat = self.model.track(x_tensor)
+            x_feat = self.branch(x_tensor)
             scores = self.model.head(z_batch, x_feat)  # (n_scales, 1, Hr, Wr)
 
         scores = scores.squeeze(1)  # (n_scales, Hr, Wr)
 
         # Upsample to final_score_sz × final_score_sz
-        import torch.nn.functional as F
         scores = F.interpolate(
             scores.unsqueeze(1),
             size=(final_score_sz, final_score_sz),

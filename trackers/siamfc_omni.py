@@ -32,7 +32,6 @@ Usage::
 
 from __future__ import annotations
 
-import math
 import os
 import sys
 
@@ -147,25 +146,13 @@ class SiamFCOmniTracker:
 
         crop_h, crop_w = crop.shape[:2]
 
-        # Recompute expected target size in this crop's coordinate system.
-        # The GT/predicted BFoV occupies the central 1/search_scale portion.
-        target_w = float(crop_w) / self.search_scale
-        target_h = float(crop_h) / self.search_scale
-
-        context = self.tracker.design.context_amount
-        p = context * (target_w + target_h)
-        z_sz = math.sqrt((target_w + p) * (target_h + p))
-        x_sz = z_sz * math.sqrt(
-            self.tracker.design.search_sz / self.tracker.design.exemplar_sz
-        )
-
-        # Reset the tracker's internal state to the centre of the new crop
-        self.tracker._pos_x[0]    = crop_w / 2.0
-        self.tracker._pos_y[0]    = crop_h / 2.0
-        self.tracker._target_w[0] = target_w
-        self.tracker._target_h[0] = target_h
-        self.tracker._z_sz[0]     = z_sz
-        self.tracker._x_sz[0]     = x_sz
+        # Reset only the expected search centre in the local crop coordinate
+        # system.  The tracker's scale state (x_sz, target_w/h, z_sz) is
+        # intentionally preserved across frames so that SiamFC can evolve its
+        # own scale estimate — overriding it every frame would break the
+        # internal scale update logic and cause bbox drift.
+        self.tracker._pos_x[0] = crop_w / 2.0
+        self.tracker._pos_y[0] = crop_h / 2.0
 
         local_bbox, _score, _scale_id = self.tracker.track(0, crop)
         # local_bbox: [x, y, w, h] top-left

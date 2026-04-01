@@ -39,24 +39,24 @@ class AlexNet(nn.Module):
         self.feature = nn.Sequential(
             # conv1
             nn.Conv2d(3, 96, kernel_size=11, stride=2),
-            nn.BatchNorm2d(96),
+            nn.BatchNorm2d(96, eps=1e-6, momentum=0.05),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2),
 
             # conv2 (groups=2!)
             nn.Conv2d(96, 256, kernel_size=5, stride=1, groups=2),
-            nn.BatchNorm2d(256),
+            nn.BatchNorm2d(256, eps=1e-6, momentum=0.05),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2),
 
             # conv3
             nn.Conv2d(256, 384, kernel_size=3, stride=1),
-            nn.BatchNorm2d(384),
+            nn.BatchNorm2d(384, eps=1e-6, momentum=0.05),
             nn.ReLU(inplace=True),
 
             # conv4 (groups=2!)
             nn.Conv2d(384, 384, kernel_size=3, stride=1, groups=2),
-            nn.BatchNorm2d(384),
+            nn.BatchNorm2d(384, eps=1e-6, momentum=0.05),
             nn.ReLU(inplace=True),
 
             # conv5 (groups=2!)

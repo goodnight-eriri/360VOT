@@ -9,4 +9,3 @@ build/
 .env
 .venv
 *.pt
-*.pth

@@ -158,18 +158,42 @@ class AiATrackOmniTracker:
         self.search_scale = search_scale
         self.crop_size = crop_size
 
-        # Insert AiATrack repo into sys.path so its modules are importable
+        # --- 隔离 AiATrack 的 lib 命名空间 ---
         aiatrack_path = os.path.abspath(aiatrack_path)
+
+        # 保存 360VOT 的 lib 模块缓存
+        _saved_lib_modules = {
+            key: mod for key, mod in sys.modules.items()
+            if key == 'lib' or key.startswith('lib.')
+        }
+        # 清除 lib 缓存
+        for key in list(sys.modules.keys()):
+            if key == 'lib' or key.startswith('lib.'):
+                del sys.modules[key]
+
+        # 把 AiATrack 放到 sys.path 最前面
         if aiatrack_path not in sys.path:
             sys.path.insert(0, aiatrack_path)
 
         if force_torchvision_prroi:
             _install_prroi_pool_fallback()
 
-        # Import AiATrack parameter loader and instantiate the inner tracker
-        from lib.test.parameter.aiatrack import parameters as aiatrack_parameters
+        # 手动加载配置（绕过 env_settings）
+        from lib.config.aiatrack.config import cfg, update_config_from_file
+        yaml_file = os.path.join(aiatrack_path, 'experiments/aiatrack/%s.yaml' % yaml_name)
+        update_config_from_file(yaml_file)
 
-        params = aiatrack_parameters(yaml_name)
+        # 手动构建 params（不依赖 env_settings/local.py）
+        class _Params:
+            pass
+        params = _Params()
+        params.cfg = cfg
+        params.search_factor = cfg.TEST.SEARCH_FACTOR
+        params.search_size = cfg.TEST.SEARCH_SIZE
+        params.checkpoint = checkpoint if checkpoint else os.path.join(
+            aiatrack_path, 'checkpoints/train/aiatrack/%s/AIATRACK_ep%04d.pth.tar' % (yaml_name, cfg.TEST.EPOCH)
+        )
+        params.save_all_boxes = False
 
         # Override the checkpoint path when the caller supplies one
         if checkpoint is not None:

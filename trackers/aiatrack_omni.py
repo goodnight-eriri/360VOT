@@ -42,6 +42,8 @@ from typing import Optional
 
 import cv2
 import numpy as np
+import torch
+import torch.nn as nn
 
 # Allow running from the repo root without explicit install
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -52,6 +54,61 @@ for _p in (_REPO_ROOT, os.path.join(_REPO_ROOT, 'lib')):
 
 from lib.omni import OmniImage
 from lib.utils import Bfov, Bbox, scaleBFoV
+
+
+class _TorchvisionPrRoIPool2D(nn.Module):
+    """Torchvision-based fallback for AiATrack's PrRoIPool2D operator.
+
+    Newer PyTorch versions removed legacy THC headers that the original
+    PreciseRoIPooling extension depends on.  This fallback keeps AiATrack
+    runnable by approximating PrRoIPool with ``torchvision.ops.roi_align``.
+    """
+
+    def __init__(self, pooled_height: int, pooled_width: int, spatial_scale: float):
+        super().__init__()
+        self.pooled_height = int(pooled_height)
+        self.pooled_width = int(pooled_width)
+        self.spatial_scale = float(spatial_scale)
+
+    def forward(self, features: torch.Tensor, rois: torch.Tensor) -> torch.Tensor:
+        from torchvision.ops import roi_align
+
+        if rois.dim() != 2:
+            rois = rois.reshape(-1, rois.shape[-1])
+
+        if rois.size(-1) == 4:
+            batch_index = torch.zeros(
+                (rois.size(0), 1), dtype=rois.dtype, device=rois.device
+            )
+            rois = torch.cat([batch_index, rois], dim=1)
+        elif rois.size(-1) != 5:
+            raise ValueError(f"Unexpected RoI shape: {tuple(rois.shape)}")
+
+        return roi_align(
+            features,
+            rois,
+            output_size=(self.pooled_height, self.pooled_width),
+            spatial_scale=self.spatial_scale,
+            sampling_ratio=-1,
+            aligned=True,
+        )
+
+
+def _install_prroi_pool_fallback() -> None:
+    """Inject a lightweight PrRoIPool module to bypass C++ extension build."""
+    import types
+
+    module_name = "external.PreciseRoIPooling.pytorch.prroi_pool"
+    submodule_name = "external.PreciseRoIPooling.pytorch.prroi_pool.prroi_pool"
+
+    prroi_module = types.ModuleType(module_name)
+    prroi_module.PrRoIPool2D = _TorchvisionPrRoIPool2D
+
+    prroi_submodule = types.ModuleType(submodule_name)
+    prroi_submodule.PrRoIPool2D = _TorchvisionPrRoIPool2D
+
+    sys.modules[module_name] = prroi_module
+    sys.modules[submodule_name] = prroi_submodule
 
 
 class AiATrackOmniTracker:
@@ -78,6 +135,10 @@ class AiATrackOmniTracker:
                        (``'cuda'`` or ``'cpu'``).
         dataset_name:  Dataset name used to select AiATrack hyper-parameters
                        (default ``'360VOT'``).
+        force_torchvision_prroi:
+                       If ``True``, use a torchvision ROIAlign fallback for
+                       AiATrack's PrRoIPool2D to avoid building legacy CUDA
+                       extensions that require deprecated THC headers.
     """
 
     def __init__(
@@ -91,6 +152,7 @@ class AiATrackOmniTracker:
         crop_size: int = 500,
         device: str = 'cuda',
         dataset_name: str = '360VOT',
+        force_torchvision_prroi: bool = True,
     ):
         self.omni = OmniImage(img_w=img_w, img_h=img_h)
         self.search_scale = search_scale
@@ -100,6 +162,9 @@ class AiATrackOmniTracker:
         aiatrack_path = os.path.abspath(aiatrack_path)
         if aiatrack_path not in sys.path:
             sys.path.insert(0, aiatrack_path)
+
+        if force_torchvision_prroi:
+            _install_prroi_pool_fallback()
 
         # Import AiATrack parameter loader and instantiate the inner tracker
         from lib.test.parameter.aiatrack import parameters as aiatrack_parameters
@@ -111,7 +176,6 @@ class AiATrackOmniTracker:
             params.checkpoint = checkpoint
 
         # Override device
-        import torch
         params.device = torch.device(device)
 
         from lib.test.tracker.aiatrack import AIATRACK
